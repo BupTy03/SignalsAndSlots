@@ -12,7 +12,6 @@ namespace my
 	private:
 
 		struct X {};
-
 		typedef void (X::*Func)(Args...);
 
 		X* ptr_{ nullptr };
@@ -46,13 +45,12 @@ namespace my
 		}
 		inline bool operator != (const slot& other) const noexcept { return !(*this == other); }
 
-		template<class... FArgs>
-		void operator () (FArgs&&... args)
+		void operator () (Args&&... args)
 		{
 			if (ptr_ == nullptr)
-				(*trivial_func_)(std::forward<FArgs>(args)...);
+				(*trivial_func_)(std::forward<Args>(args)...);
 			else
-				(ptr_->*member_func_)(std::forward<FArgs>(args)...);
+				(ptr_->*member_func_)(std::forward<Args>(args)...);
 		}
 	};
 }

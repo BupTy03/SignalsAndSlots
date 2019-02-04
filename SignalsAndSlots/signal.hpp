@@ -6,7 +6,9 @@
 
 #include<utility>
 #include<algorithm>
-#include<vector>
+#include<list>
+#include<mutex>
+#include<shared_mutex>
 
 namespace my
 {
@@ -15,12 +17,14 @@ namespace my
 	{
 	public:
 
-		template<class... FArgs>
-		void operator()(FArgs&&... args)
+		void operator()(Args&&... args)
 		{
-			for (auto& sl : slots_)
+			std::shared_lock<std::shared_mutex> lock_(mx_);
+			for (auto it = slots_.begin(); it != slots_.end(); )
 			{
-				sl(std::forward<FArgs>(args)...);
+				auto tmp = it; // if the current slot is deleted,
+				++it;		   // the iterator will remain valid.
+				(*tmp)(std::forward<Args>(args)...);
 			}
 		}
 
@@ -30,34 +34,35 @@ namespace my
 			connect(slot<Args...>(func));
 		}
 
-		template<class Obj, class... FArgs>
-		void connect(Obj* obj, void (Obj::* func)(FArgs...)) const
+		template<class Obj>
+		void connect(Obj* obj, void (Obj::* func)(Args...)) const
 		{
 			if (obj == nullptr || func == nullptr) return;
-			connect(slot<FArgs...>(obj, func));
+			connect(slot<Args...>(obj, func));
 		}
 
 		void connect(const slot<Args...>& sl) const
 		{
-			if (std::find(std::begin(slots_), std::end(slots_), sl) != std::end(slots_))
+			if (std::find(std::cbegin(slots_), std::cend(slots_), sl) != std::cend(slots_))
 				return;
 
+			std::unique_lock<std::shared_mutex> lock_(mx_);
 			slots_.push_back(sl);
 		}
 
 		void connect(slot<Args...>&& sl) const
 		{
-			if (std::find(std::begin(slots_), std::end(slots_), sl) != std::end(slots_))
+			if (std::find(std::cbegin(slots_), std::cend(slots_), sl) != std::cend(slots_))
 				return;
 
+			std::unique_lock<std::shared_mutex> lock_(mx_);
 			slots_.push_back(std::move(sl));
 		}
 
-		template<class... FArgs>
-		void disconnect(void(*func)(FArgs...)) const
+		void disconnect(void(*func)(Args...)) const
 		{
 			if (func == nullptr) return;
-			disconnect(slot<FArgs...>(func));
+			disconnect(slot<Args...>(func));
 		}
 
 		template<class Obj, class... FArgs>
@@ -66,14 +71,16 @@ namespace my
 			disconnect(slot<FArgs...>(obj, func));
 		}
 
-		template<class... FArgs>
-		void disconnect(const slot<FArgs...>& sl) const
+		void disconnect(const slot<Args...>& sl) const
 		{
+			std::shared_lock<std::shared_mutex> lock_(mx_);
 			slots_.erase(std::find(std::begin(slots_), std::end(slots_), sl));
 		}
 
 	private:
-		mutable std::vector<slot<Args...>> slots_;
+
+		mutable std::list<slot<Args...>> slots_;
+		mutable std::shared_mutex mx_;
 	};
 
 }
