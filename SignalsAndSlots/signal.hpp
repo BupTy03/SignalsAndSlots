@@ -13,16 +13,14 @@
 namespace my
 {
 	template<class... Args>
-	class signal
+	struct signal
 	{
-	public:
-
 		void operator()(Args&&... args)
 		{
 			std::shared_lock<std::shared_mutex> lock_(mx_);
 			for (auto it = slots_.begin(); it != slots_.end(); )
 			{
-				auto tmp = it; // if the current slot is deleted,
+				auto tmp = it; // if the current slot will disconnect itself,
 				++it;		   // the iterator will remain valid.
 				(*tmp)(std::forward<Args>(args)...);
 			}

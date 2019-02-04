@@ -7,21 +7,8 @@
 namespace my
 {
 	template<class... Args>
-	class slot
+	struct slot
 	{
-	private:
-
-		struct X {};
-		typedef void (X::*Func)(Args...);
-
-		X* ptr_{ nullptr };
-		union
-		{
-			Func member_func_;
-			void(*trivial_func_) (Args...);
-		};
-	public:
-
 		template<class Obj>
 		explicit slot(Obj* owner, void (Obj::* func)(Args...)) noexcept
 			: ptr_{ reinterpret_cast<X*>(owner) }, member_func_{ reinterpret_cast<Func>(func) }
@@ -52,6 +39,18 @@ namespace my
 			else
 				(ptr_->*member_func_)(std::forward<Args>(args)...);
 		}
+
+	private:
+
+		struct X {};
+		typedef void (X::*Func)(Args...);
+
+		X* ptr_{ nullptr };
+		union
+		{
+			Func member_func_;
+			void(*trivial_func_) (Args...);
+		};
 	};
 }
 

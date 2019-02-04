@@ -62,6 +62,8 @@ int main()
 		my::TestObject obj1;
 		vec.Add(obj1);
 		vec.Remove(obj1);
+
+		vec.Add(my::TestObject());
 	}
 	system("pause");
 	return 0;
