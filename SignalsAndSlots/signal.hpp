@@ -6,7 +6,7 @@
 
 #include<utility>
 #include<algorithm>
-#include<list>
+#include<vector>
 #include<mutex>
 #include<shared_mutex>
 
@@ -18,11 +18,8 @@ namespace my
 		void operator()(Args&&... args)
 		{
 			std::shared_lock<std::shared_mutex> lock_(mx_);
-			for (auto it = slots_.begin(); it != slots_.end(); )
-			{
-				auto tmp = it; // if the current slot will disconnect itself,
-				++it;		   // the iterator will remain valid.
-				(*tmp)(std::forward<Args>(args)...);
+			for (std::size_t i = 0; i < slots_.size(); ++i) {
+				slots_[i](std::forward<Args>(args)...);
 			}
 		}
 
@@ -76,8 +73,7 @@ namespace my
 		}
 
 	private:
-
-		mutable std::list<slot<Args...>> slots_;
+		mutable std::vector<slot<Args...>> slots_;
 		mutable std::shared_mutex mx_;
 	};
 
