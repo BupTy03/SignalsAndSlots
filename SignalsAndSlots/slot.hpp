@@ -3,6 +3,7 @@
 #define SLOT_HPP
 
 #include<utility>
+#include<stdexcept>
 
 namespace my
 {
