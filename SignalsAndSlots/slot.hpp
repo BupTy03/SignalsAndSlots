@@ -27,9 +27,8 @@ namespace my
 
 		inline bool operator == (const slot& other) const noexcept
 		{
-			return this->ptr_ == other.ptr_ &&
-				(this->ptr_ == nullptr && this->trivial_func_ == other.trivial_func_ ||
-					this->member_func_ == other.member_func_);
+			return this->ptr_ == nullptr && this->trivial_func_ == other.trivial_func_ ||
+				this->ptr_ == other.ptr_ && this->member_func_ == other.member_func_;
 		}
 		inline bool operator != (const slot& other) const noexcept { return !(*this == other); }
 
