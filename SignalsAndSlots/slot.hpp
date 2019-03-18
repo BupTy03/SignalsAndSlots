@@ -9,6 +9,7 @@
 namespace my
 {
 	enum class slot_type {
+		NONE,
 		FUNCTION,
 		MEMBER_FUNCTION,
 		FUNCTOR
@@ -17,6 +18,8 @@ namespace my
 	template<class... Args>
 	struct slot
 	{
+		slot(){}
+
 		template<class Obj>
 		explicit slot(Obj* owner, void (Obj::* func)(Args...))
 			: id_{++counter_}
@@ -46,8 +49,11 @@ namespace my
 		slot(const slot& other) noexcept
 			: id_{ other.id_ }
 			, sType_{ other.sType_ }
-			, callable_{ (other.callable_)->clone() }
-		{}
+		{
+			if (other.callable_ != nullptr) {
+				callable_ = (other.callable_)->clone();
+			}
+		}
 		slot& operator=(const slot& other) noexcept
 		{
 			if (this == &other) {
@@ -60,7 +66,12 @@ namespace my
 			if (callable_ != nullptr) {
 				delete callable_;
 			}
-			callable_ = (other.callable_)->clone();
+			if (other.callable_ != nullptr) {
+				callable_ = (other.callable_)->clone();
+			}
+			else {
+				callable_ = nullptr;
+			}
 		}
 
 		slot(slot&& other) noexcept
@@ -124,6 +135,9 @@ namespace my
 
 		void operator () (Args&&... args)
 		{
+			if (callable_ == nullptr) {
+				throw std::bad_function_call();
+			}
 			callable_->call(std::forward<Args>(args)...);
 		}
 
