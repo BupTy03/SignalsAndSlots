@@ -57,7 +57,7 @@ namespace my
 		slot& operator=(const slot& other) noexcept
 		{
 			if (this == &other) {
-				return;
+				return *this;
 			}
 
 			id_ = other.id_;
@@ -66,12 +66,14 @@ namespace my
 			if (callable_ != nullptr) {
 				delete callable_;
 			}
+
 			if (other.callable_ != nullptr) {
 				callable_ = (other.callable_)->clone();
 			}
 			else {
 				callable_ = nullptr;
 			}
+			return *this;
 		}
 
 		slot(slot&& other) noexcept
@@ -83,12 +85,13 @@ namespace my
 		slot& operator=(slot&& other) noexcept
 		{
 			if (this == &other) {
-				return;
+				return *this;
 			}
 
 			id_ = other.id_;
 			sType_ = other.sType_;
 			std::swap(callable_, other.callable_);
+			return *this;
 		}
 
 		~slot()
@@ -110,27 +113,27 @@ namespace my
 
 		inline bool operator == (const slot& other) const noexcept
 		{
-			this->id_ == other.id_;
+			return this->id_ == other.id_;
 		}
 		inline bool operator != (const slot& other) const noexcept 
 		{ 
-			this->id_ != other.id_;
+			return this->id_ != other.id_;
 		}
 		inline bool operator < (const slot& other) const noexcept
 		{
-			this->id_ < other.id_;
+			return this->id_ < other.id_;
 		}
 		inline bool operator > (const slot& other) const noexcept
 		{
-			this->id_ > other.id_;
+			return this->id_ > other.id_;
 		}
 		inline bool operator <= (const slot& other) const noexcept
 		{
-			this->id_ <= other.id_;
+			return this->id_ <= other.id_;
 		}
 		inline bool operator >= (const slot& other) const noexcept
 		{
-			this->id_ >= other.id_;
+			return this->id_ >= other.id_;
 		}
 
 		void operator () (Args&&... args)

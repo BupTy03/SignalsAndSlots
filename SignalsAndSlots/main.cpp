@@ -1,10 +1,10 @@
-#include"slot.hpp"
-#include"signal.hpp"
-#include"TestObject.hpp"
+#include "slot.hpp"
+#include "signal.hpp"
+#include "TestObject.hpp"
 
-#include<iostream>
-#include<memory>
-#include<vector>
+#include <iostream>
+#include <memory>
+#include <vector>
 
 #if 0
 template<class T, class A = std::allocator<T>>
@@ -68,6 +68,7 @@ struct SumPrinter
 
 int main(int argc, char* argv[])
 {
+	// slots
 	my::slot<int, int> sl(print_sum);
 	if (sl.type() == my::slot_type::FUNCTION) {
 		std::cout << "Slot type: FUNCTION" << std::endl;
@@ -95,6 +96,22 @@ int main(int argc, char* argv[])
 	auto cp_sl = sl;
 	cp_sl(2, 2);
 
+
+	// signals
+	my::signal<int, int> sign;
+	auto conn = sign.connect(print_sum);
+	auto conn2 = sign.connect(&sp, &SumPrinter::print_sum);
+	auto conn3 = sign.connect([](int a, int b) {
+		std::cout << "Sum: " << a + b << std::endl;
+	});
+
+	conn.disconnect();
+	//conn2.disconnect();
+	//conn3.disconnect();
+
+	std::cout << "Signal called!\n";
+	sign(2, 3);
+
 #if 0
 	{
 		ObservableVector<my::TestObject> vec;
@@ -110,6 +127,7 @@ int main(int argc, char* argv[])
 		vec.Add(my::TestObject());
 	}
 #endif
+
 	system("pause");
 	return 0;
 }

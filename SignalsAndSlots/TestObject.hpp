@@ -2,9 +2,9 @@
 #ifndef TEST_OBJECT_HPP
 #define TEST_OBJECT_HPP
 
-#include<iostream>
-#include<string>
-#include<vector>
+#include <iostream>
+#include <string>
+#include <vector>
 
 namespace my
 {
