@@ -204,13 +204,13 @@ namespace my
 
 	private:
 		static int counter_;
-		int id_{ 0 };
+		int id_{};
 		slot_type slType_;
 		union
 		{
-			void(*func_) (Args...) { nullptr };
+			void(*func_) (Args...);
 			ObjMemberFunc memberFunc_;
-			Callable* callable_{ nullptr };
+			Callable* callable_;
 		};
 	};
 
