@@ -20,38 +20,48 @@ namespace my
 	{
 		slot(){}
 
-		template<class Obj>
-		explicit slot(Obj* owner, void (Obj::* func)(Args...))
-			: id_{++counter_}
-			, sType_{ slot_type::MEMBER_FUNCTION }
-		{
-			if (owner == nullptr || func == nullptr)
-				throw std::invalid_argument{ "pointer to an object and pointer to member of this object expected, nullptr was given" };
-			callable_ = new MemberFunctionHolder<Obj>(owner, func);
-		}
-
 		explicit slot(void(*func)(Args...))
 			: id_{ ++counter_ }
-			, sType_{ slot_type::FUNCTION }
+			, slType_{ slot_type::FUNCTION }
 		{
 			if (func == nullptr)
 				throw std::invalid_argument{ "pointer to a trivial function expected, nullptr was given" };
-			callable_ = new FunctionHolder(func);
+			func_ = func;
+		}
+
+		template<class T>
+		explicit slot(T* owner, void (T::* func)(Args...))
+			: id_{++counter_}
+			, slType_{ slot_type::MEMBER_FUNCTION }
+		{
+			if (owner == nullptr || func == nullptr)
+				throw std::invalid_argument{ "pointer to an object and pointer to member of this object expected, nullptr was given" };
+			memberFunc_.owner = reinterpret_cast<T*>(owner);
+			memberFunc_.mfunc = reinterpret_cast<MFunc>(func);
 		}
 
 		template<class Func>
 		explicit slot(Func func)
 			: id_{ ++counter_ }
-			, sType_{ slot_type::FUNCTOR }
+			, slType_{ slot_type::FUNCTOR }
 			, callable_{new FunctorHolder<Func>(func)}
 		{}
 
 		slot(const slot& other) noexcept
 			: id_{ other.id_ }
-			, sType_{ other.sType_ }
+			, slType_{ other.slType_ }
 		{
-			if (other.callable_ != nullptr) {
-				callable_ = (other.callable_)->clone();
+			switch (slType_)
+			{
+			case slot_type::FUNCTION: 
+				func_ = other.func_;
+				break;
+			case slot_type::MEMBER_FUNCTION:
+				memberFunc_ = other.memberFunc_;
+				break;
+			case slot_type::FUNCTOR:
+				callable_ = (other.callable_).clone();
+				break;
 			}
 		}
 		slot& operator=(const slot& other) noexcept
@@ -60,27 +70,44 @@ namespace my
 				return *this;
 			}
 
-			id_ = other.id_;
-			sType_ = other.sType_;
-
-			if (callable_ != nullptr) {
+			if (slType_ == slot_type::FUNCTOR) {
 				delete callable_;
 			}
 
-			if (other.callable_ != nullptr) {
-				callable_ = (other.callable_)->clone();
-			}
-			else {
-				callable_ = nullptr;
+			id_ = other.id_;
+			slType_ = other.slType_;
+
+			switch (slType_)
+			{
+			case slot_type::FUNCTION:
+				func_ = other.func_;
+				break;
+			case slot_type::MEMBER_FUNCTION:
+				memberFunc_ = other.memberFunc_;
+				break;
+			case slot_type::FUNCTOR:
+				callable_ = (other.callable_).clone();
+				break;
 			}
 			return *this;
 		}
 
 		slot(slot&& other) noexcept
 			: id_{ other.id_ }
-			, sType_{other.sType_}
 		{
-			std::swap(callable_, other.callable_);
+			std::swap(slType_, other.slType_);
+			switch (slType_)
+			{
+			case slot_type::FUNCTION:
+				std::swap(func_, other.func_);
+				break;
+			case slot_type::MEMBER_FUNCTION:
+				std::swap(memberFunc_, other.memberFunc_);
+				break;
+			case slot_type::FUNCTOR:
+				std::swap(callable_, other.callable_);
+				break;
+			}
 		}
 		slot& operator=(slot&& other) noexcept
 		{
@@ -88,60 +115,59 @@ namespace my
 				return *this;
 			}
 
+			if (slType_ == slot_type::FUNCTOR && slType_ != other.slType_) {
+				delete callable_;
+			}
+
 			id_ = other.id_;
-			sType_ = other.sType_;
-			std::swap(callable_, other.callable_);
+			slType_ = other.slType_;
+			switch (slType_)
+			{
+			case slot_type::FUNCTION:
+				std::swap(func_, other.func_);
+				break;
+			case slot_type::MEMBER_FUNCTION:
+				std::swap(memberFunc_, other.memberFunc_);
+				break;
+			case slot_type::FUNCTOR:
+				std::swap(callable_, other.callable_);
+				break;
+			}
 			return *this;
 		}
 
 		~slot()
 		{
-			if (callable_ != nullptr) {
+			if (slType_ == slot_type::FUNCTOR && callable_ != nullptr) {
 				delete callable_;
 			}
 		}
 
-		inline slot_type type() const noexcept
-		{
-			return sType_;
-		}
+		inline slot_type type() const noexcept { return slType_; }
 
-		inline int id() const noexcept
-		{
-			return id_;
-		}
+		inline int id() const noexcept{ return id_; }
 
-		inline bool operator == (const slot& other) const noexcept
-		{
-			return this->id_ == other.id_;
-		}
-		inline bool operator != (const slot& other) const noexcept 
-		{ 
-			return this->id_ != other.id_;
-		}
-		inline bool operator < (const slot& other) const noexcept
-		{
-			return this->id_ < other.id_;
-		}
-		inline bool operator > (const slot& other) const noexcept
-		{
-			return this->id_ > other.id_;
-		}
-		inline bool operator <= (const slot& other) const noexcept
-		{
-			return this->id_ <= other.id_;
-		}
-		inline bool operator >= (const slot& other) const noexcept
-		{
-			return this->id_ >= other.id_;
-		}
+		inline bool operator == (const slot& other) const noexcept { return this->id_ == other.id_; }
+		inline bool operator != (const slot& other) const noexcept { return this->id_ != other.id_; }
+		inline bool operator < (const slot& other) const noexcept { return this->id_ < other.id_; }
+		inline bool operator > (const slot& other) const noexcept { return this->id_ > other.id_; }
+		inline bool operator <= (const slot& other) const noexcept { return this->id_ <= other.id_; }
+		inline bool operator >= (const slot& other) const noexcept { return this->id_ >= other.id_; }
 
 		void operator () (Args&&... args)
 		{
-			if (callable_ == nullptr) {
-				throw std::bad_function_call();
+			switch (slType_)
+			{
+			case slot_type::FUNCTION:
+				func_(std::forward<Args>(args)...);
+				break;
+			case slot_type::MEMBER_FUNCTION:
+				((memberFunc_.owner)->*mfunc)(std::forward<Args>(args)...);
+				break;
+			case slot_type::FUNCTOR:
+				callable_->call(std::forward<Args>(args)...);
+				break;
 			}
-			callable_->call(std::forward<Args>(args)...);
 		}
 
 	private:
@@ -153,55 +179,6 @@ namespace my
 			virtual Callable* clone() = 0;
 		};
 
-		struct FunctionHolder final : Callable
-		{
-			FunctionHolder(void(*f) (Args...))
-				: func_{f}
-			{}
-
-			virtual void call(Args&&... args) override
-			{
-				if (func_ == nullptr) {
-					throw std::bad_function_call();
-				}
-				(*func_)(std::forward<Args>(args)...);
-			}
-
-			virtual Callable* clone() override
-			{
-				return new FunctionHolder(func_);
-			}
-
-		private:
-			void(*func_) (Args...) { nullptr };
-		};
-
-		template<class Obj>
-		struct MemberFunctionHolder final : Callable
-		{
-			MemberFunctionHolder(Obj* owner, void (Obj::* mfunc)(Args...))
-				: owner_{owner}
-				, mfunc_{mfunc}
-			{}
-
-			virtual void call(Args&&... args) override
-			{
-				if (owner_ == nullptr || mfunc_ == nullptr) {
-					throw std::bad_function_call();
-				}
-				(owner_->*mfunc_)(std::forward<Args>(args)...);
-			}
-
-			virtual Callable* clone() override
-			{
-				return new MemberFunctionHolder(owner_, mfunc_);
-			}
-
-		private:
-			Obj* owner_{ nullptr };
-			void (Obj::* mfunc_)(Args...) { nullptr };
-		};
-
 		template<class Func>
 		struct FunctorHolder final : Callable
 		{
@@ -209,25 +186,32 @@ namespace my
 				: func_{std::move(f)}
 			{}
 
-			virtual void call(Args&&... args) override
-			{
-				func_(std::forward<Args>(args)...);
-			}
-
-			virtual Callable* clone() override
-			{
-				return new FunctorHolder(func_);
-			}
+			virtual void call(Args&&... args) override { func_(std::forward<Args>(args)...); }
+			virtual Callable* clone() override { return new FunctorHolder(func_); }
 
 		private:
 			Func func_;
 		};
 
 	private:
+		struct Obj{};
+		typedef void (Obj::*MFunc)(Args...);
+		struct ObjMemberFunc
+		{
+			Obj* owner{ nullptr };
+			MFunc mfunc{ nullptr };
+		};
+
+	private:
 		static int counter_;
 		int id_{ 0 };
-		slot_type sType_;
-		Callable* callable_{ nullptr };
+		slot_type slType_;
+		union
+		{
+			void(*func_) (Args...) { nullptr };
+			ObjMemberFunc memberFunc_;
+			Callable* callable_{ nullptr };
+		};
 	};
 
 	template<class... Args>
