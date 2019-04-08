@@ -55,14 +55,14 @@ struct Observer
 
 void print_sum(int a, int b)
 {
-	std::cout << "Sum: " << a + b << std::endl;
+	std::cout << "(print_sum) Sum: " << a + b << std::endl;
 }
 
 struct SumPrinter
 {
 	void print_sum(int a, int b)
 	{
-		std::cout << "Sum: " << a + b << std::endl;
+		std::cout << "(&SumPrinter::print_sum) Sum: " << a + b << std::endl;
 	}
 };
 
@@ -73,7 +73,6 @@ int main(int argc, char* argv[])
 	if (sl.type() == my::slot_type::FUNCTION) {
 		std::cout << "Slot type: FUNCTION" << std::endl;
 	}
-	std::cout << "Slot id: " << sl.id() << std::endl;
 	sl(2, 2);
 
 	SumPrinter sp;
@@ -81,7 +80,6 @@ int main(int argc, char* argv[])
 	if (sl2.type() == my::slot_type::MEMBER_FUNCTION) {
 		std::cout << "Slot type: MEMBER_FUNCTION" << std::endl;
 	}
-	std::cout << "Slot id: " << sl2.id() << std::endl;
 	sl2(2, 2);
 
 	my::slot<int, int> sl3([](int a, int b) {
@@ -90,7 +88,6 @@ int main(int argc, char* argv[])
 	if (sl3.type() == my::slot_type::FUNCTOR) {
 		std::cout << "Slot type: FUNCTOR" << std::endl;
 	}
-	std::cout << "Slot id: " << sl3.id() << std::endl;
 	sl3(2, 2);
 
 	auto cp_sl = sl;
@@ -102,11 +99,11 @@ int main(int argc, char* argv[])
 	auto conn = sign.connect(print_sum);
 	auto conn2 = sign.connect(&sp, &SumPrinter::print_sum);
 	auto conn3 = sign.connect([](int a, int b) {
-		std::cout << "Sum: " << a + b << std::endl;
+		std::cout << "(Lambda) Sum: " << a + b << std::endl;
 	});
 
-	conn.disconnect();
-	//conn2.disconnect();
+	//conn.disconnect();
+	conn2.disconnect();
 	//conn3.disconnect();
 
 	std::cout << "Signal called!\n";

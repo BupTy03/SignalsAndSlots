@@ -9,7 +9,7 @@
 #include <vector>
 #include <mutex>
 #include <shared_mutex>
-#include <cassert>
+#include <memory>
 
 namespace my
 {
@@ -19,14 +19,11 @@ namespace my
 	struct connection
 	{
 		template<class... Args>
-		connection(signal<Args...>* si, const slot<Args...>& sl)
-			: sHolder_{ new SignalSlotHolder<Args...>(si, sl) }
-		{
-			assert(si != nullptr && "nullptr was given, signal ptr required");
-		}
-
+		connection(signal<Args...>& si, const slot<Args...>& sl)
+			: sHolder_{ std::make_shared<SignalSlotHolder<Args...>>(si, sl) }
+		{}
 		connection(const connection& other)
-			: sHolder_{ (other.sHolder_)->clone() }
+			: sHolder_{ other.sHolder_ }
 		{}
 		connection& operator=(const connection& other)
 		{
@@ -34,18 +31,11 @@ namespace my
 				return *this;
 			}
 
-			if (sHolder_ != nullptr) {
-				delete sHolder_;
-			}
-
-			sHolder_ = (other.sHolder_)->clone();
+			sHolder_ = other.sHolder_;
 			return *this;
 		}
 
-		connection(connection&& other) noexcept
-		{
-			std::swap(sHolder_, other.sHolder_);
-		}
+		connection(connection&& other) noexcept { std::swap(sHolder_, other.sHolder_); }
 		connection& operator=(connection&& other) noexcept
 		{
 			if (this == &other) {
@@ -55,15 +45,12 @@ namespace my
 			return *this;
 		}
 
-		~connection()
-		{
-			delete sHolder_;
-		}
+		~connection() {}
 
 		void disconnect()
 		{
 			if (disconnected_) {
-				throw std::runtime_error{ "connection is already disconnected" };
+				return;
 			}
 			sHolder_->disconnect_slot();
 			disconnected_ = true;
@@ -71,30 +58,18 @@ namespace my
 
 		struct ISignalSlotHolder
 		{
-			virtual ~ISignalSlotHolder() {}
 			virtual void disconnect_slot() = 0;
-			virtual ISignalSlotHolder* clone() = 0;
 		};
 
 		template<class... Args>
 		struct SignalSlotHolder final : ISignalSlotHolder
 		{
-			SignalSlotHolder(signal<Args...>* si, const slot<Args...>& sl)
-				: signal_{ si }
+			SignalSlotHolder(signal<Args...>& si, const slot<Args...>& sl)
+				: signal_{ &si }
 				, slot_{ sl }
-			{
-				assert(si != nullptr && "nullptr was given, signal ptr required");
-			}
+			{}
 
-			virtual void disconnect_slot() override
-			{
-				signal_->disconnect(slot_);
-			}
-
-			virtual ISignalSlotHolder* clone()
-			{
-				return new SignalSlotHolder(signal_, slot_);
-			}
+			virtual void disconnect_slot() override { signal_->disconnect(slot_); }
 
 		private:
 			signal<Args...>* signal_;
@@ -102,7 +77,7 @@ namespace my
 		};
 
 	private:
-		ISignalSlotHolder* sHolder_{ nullptr };
+		std::shared_ptr<ISignalSlotHolder> sHolder_;
 		bool disconnected_{ false };
 	};
 
@@ -121,27 +96,27 @@ namespace my
 		{
 			slot<Args...> sl(func);
 			connect(sl);
-			return connection(this, std::move(sl));
+			return connection(*this, std::move(sl));
 		}
 		template<class Obj>
 		connection connect(Obj* obj, void (Obj::* func)(Args...))
 		{
 			slot<Args...> sl(obj, func);
 			connect(sl);
-			return connection(this, std::move(sl));
+			return connection(*this, std::move(sl));
 		}
 		connection connect(const slot<Args...>& sl)
 		{
 			std::unique_lock<std::shared_mutex> lock_(mx_);
-			auto it = std::upper_bound(std::cbegin(slots_), std::cend(slots_), sl);
-			slots_.insert(it, sl);
-			return connection(this, sl);
+			auto it = std::find(std::cbegin(slots_), std::cend(slots_), sl);
+			slots_.push_back(sl);
+			return connection(*this, sl);
 		}
 
 		void disconnect(const slot<Args...>& sl)
 		{
 			std::shared_lock<std::shared_mutex> lock_(mx_);
-			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl);
+			auto it = std::find(std::cbegin(slots_), std::cend(slots_), sl);
 			if (it == std::cend(slots_) || *it != sl) {
 				return;
 			}
