@@ -94,23 +94,36 @@ namespace my
 
 		connection connect(void(*func)(Args...))
 		{
-			slot<Args...> sl(func);
-			connect(sl);
-			return connection(*this, std::move(sl));
+			slot<Args...> sl(func);	
+			return connect(sl);
 		}
 		template<class Obj>
 		connection connect(Obj* obj, void (Obj::* func)(Args...))
 		{
 			slot<Args...> sl(obj, func);
-			connect(sl);
-			return connection(*this, std::move(sl));
+			return connect(sl);
 		}
 		connection connect(const slot<Args...>& sl)
 		{
 			std::unique_lock<std::shared_mutex> lock_(mx_);
 			auto it = std::find(std::cbegin(slots_), std::cend(slots_), sl);
+			connection result(*this, sl);
+			if (it != std::cend(slots_)) {
+				return result;
+			}
 			slots_.push_back(sl);
-			return connection(*this, sl);
+			return result;
+		}
+		connection connect(slot<Args...>&& sl)
+		{
+			std::unique_lock<std::shared_mutex> lock_(mx_);
+			auto it = std::find(std::cbegin(slots_), std::cend(slots_), sl);
+			connection result(*this, sl);
+			if (it != std::cend(slots_)) {
+				return result;
+			}
+			slots_.push_back(std::move(sl));
+			return result;
 		}
 
 		void disconnect(const slot<Args...>& sl)
