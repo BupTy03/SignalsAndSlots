@@ -22,22 +22,27 @@ namespace my
 	template<class... Args>
 	struct slot
 	{
-		explicit slot() {}
+		explicit slot()
+			: id_{ currentId_++ }
+		{}
 		explicit slot(void(*func)(Args...))
 			: current_manager_{ &strategy_function::manager }
 			, current_invoker_{ &invoker_function::invoke }
+			, id_{ ++currentId_ }
 		{
 			current_manager_(storage_operation::CONSTRUCT, &storage_, func, nullptr, nullptr);
 		}
 		template<class T>
-		explicit slot(T* owner, void (T::* mfunc)(Args...))
+		explicit slot(T* owner, void(T::*mfunc)(Args...))
 			: current_manager_{ &strategy_member_function::manager }
 			, current_invoker_{ &invoker_member_function::invoke }
+			, id_{ ++currentId_ }
 		{
 			current_manager_(storage_operation::CONSTRUCT, &storage_, owner, nullptr, reinterpret_cast<MFunc>(mfunc));
 		}
 		template<class Functor>
 		explicit slot(Functor func)
+			: id_{ ++currentId_ }
 		{
 			constexpr auto use_internal_st = use_internal_storage<Functor>::value;
 			if (use_internal_st) {
@@ -56,6 +61,7 @@ namespace my
 		slot(const slot& other)
 			: current_manager_{ other.current_manager_ }
 			, current_invoker_{ other.current_invoker_ }
+			, id_{ other.id_ }
 		{
 			current_manager_(storage_operation::COPY, const_cast<storage*>(&(other.storage_)), &storage_, nullptr, nullptr);
 		}
@@ -64,10 +70,10 @@ namespace my
 			if (this == &other) {
 				return *this;
 			}
-
+			id_ = other.id_;
 			current_manager_(storage_operation::DESTROY, &storage_, nullptr, nullptr, nullptr);
 			current_manager_ = other.current_manager_;
-			current_manager_(storage_operation::COPY, &(other.storage_), &storage_, nullptr, nullptr);
+			current_manager_(storage_operation::COPY, const_cast<storage*>(&(other.storage_)), &storage_, nullptr, nullptr);
 			current_invoker_ = other.current_invoker_;
 			return *this;
 		}
@@ -75,8 +81,9 @@ namespace my
 		slot(slot&& other) noexcept
 			: current_manager_{ other.current_manager_ }
 			, current_invoker_{ other.current_invoker_ }
+			, id_{ other.id_ }
 		{
-			current_manager_(storage_operation::MOVE, const_cast<storage*>(&(other.storage_)), &storage_, nullptr, nullptr);
+			current_manager_(storage_operation::MOVE, &(other.storage_), &storage_, nullptr, nullptr);
 			other.current_manager_ = &strategy_empty::manager;
 		}
 		slot& operator=(slot&& other) noexcept
@@ -85,6 +92,7 @@ namespace my
 				return *this;
 			}
 
+			id_ = other.id_;
 			current_manager_(storage_operation::DESTROY, &storage_, nullptr, nullptr, nullptr);
 
 			current_manager_ = other.current_manager_;
@@ -98,18 +106,19 @@ namespace my
 			return *this;
 		}
 
-		inline bool operator == (const slot& other) const noexcept 
+		/*inline bool operator == (const slot& other) const noexcept 
 		{ 
 			bool are_equal = false;
 			current_manager_(storage_operation::COMPARE, const_cast<storage*>(&storage_), 
 				const_cast<storage*>(&(other.storage_)), &are_equal, nullptr);
 			return are_equal;
 		}
-		inline bool operator != (const slot& other) const noexcept { return !(*this == other); }
+		inline bool operator != (const slot& other) const noexcept { return !(*this == other); }*/
 
 		void operator () (Args... args) { current_invoker_(storage_, args...); }
 
-		slot_type type()
+		std::size_t get_id() const noexcept { return id_; }
+		slot_type type() const noexcept
 		{
 			if (&strategy_empty::manager == current_manager_) {
 				return slot_type::EMPTY;
@@ -123,6 +132,40 @@ namespace my
 			else {
 				return slot_type::FUNCTOR;
 			}
+		}
+
+		explicit operator bool() const noexcept { return &strategy_empty::manager == current_manager_; }
+
+		friend bool operator<(const slot& first, const slot& second) noexcept { return first.id_ < second.id_; };
+		friend bool operator>(const slot& first, const slot& second) noexcept { return first.id_ > second.id_; };
+
+		friend bool operator<=(const slot& first, const slot& second) noexcept { return !(first > second); };
+		friend bool operator>=(const slot& first, const slot& second) noexcept { return !(first < second); };
+
+		friend bool operator==(const slot& first, const slot& second) noexcept { return first.id_ == second.id_; };
+		friend bool operator!=(const slot& first, const slot& second) noexcept { return !(first == second); };
+
+
+		bool compare(void(*func)(Args...)) const noexcept
+		{
+			if (&strategy_function::manager != current_manager_) {
+				return false;
+			}
+
+			bool are_equal = false;
+			current_manager_(storage_operation::COMPARE, const_cast<storage*>(&storage_), func, &are_equal, nullptr);
+			return are_equal;
+		}
+		template<class T>
+		bool compare(T* owner, void(T::*mfunc)(Args...)) const noexcept
+		{
+			if (&strategy_member_function::manager != current_manager_) {
+				return false;
+			}
+
+			bool are_equal = false;
+			current_manager_(storage_operation::COMPARE, const_cast<storage*>(&storage_), owner, &are_equal, mfunc);
+			return are_equal;
 		}
 
 	private:
@@ -163,10 +206,11 @@ namespace my
 		using storage_manager_ptr = void(*)(storage_operation op, void* ptr1, void* ptr2, void* ptr3, MFunc mfunc);
 		using invoker_ptr = void(*)(storage&, Args...);
 
+		// helper classes
 		class strategy_empty
 		{
 		public:
-			static void manager(storage_operation op, void* ptr1, void* ptr2, void* ptr3, MFunc mfunc) {}
+			static void manager(storage_operation, void*, void*, void*, MFunc) {}
 		};
 		class strategy_function
 		{
@@ -174,7 +218,7 @@ namespace my
 			static void destroy_storage(storage& stor) { stor.ptr_function = nullptr; }
 			static void copy_storage(storage& from, storage& to) { to.ptr_function = from.ptr_function; }
 			static void move_storage(storage& from, storage& to) { copy_storage(from, to); }
-			static bool compare(storage& first, storage& second) { return first.ptr_function == second.ptr_function; }
+			static bool compare(storage& st, function_ptr func) { return st.ptr_function == func; }
 		public:
 			static void manager(storage_operation op, void* ptr1, void* ptr2, void* ptr3, MFunc mfunc)
 			{
@@ -213,7 +257,7 @@ namespace my
 					assert(ptr2 != nullptr);
 					assert(ptr3 != nullptr);
 					bool* are_equal = static_cast<bool*>(ptr3);
-					*are_equal = compare(*static_cast<storage*>(ptr1), *static_cast<storage*>(ptr2));
+					*are_equal = compare(*static_cast<storage*>(ptr1), static_cast<function_ptr>(ptr2));
 				}
 				return;
 				}
@@ -237,10 +281,10 @@ namespace my
 				to.mem_function.mfunc = from.mem_function.mfunc;
 			}
 			static void move_storage(storage& from, storage& to) { copy_storage(from, to); }
-			static bool compare(storage& first, storage& second)
+			static bool compare(storage& st, Obj* owner, MFunc mfunc)
 			{
-				return first.mem_function.owner == second.mem_function.owner &&
-					first.mem_function.mfunc == second.mem_function.mfunc;
+				return st.mem_function.owner == owner &&
+					st.mem_function.mfunc == mfunc;
 			}
 		public:
 			static void manager(storage_operation op, void* ptr1, void* ptr2, void* ptr3, MFunc mfunc)
@@ -280,8 +324,9 @@ namespace my
 					assert(ptr1 != nullptr);
 					assert(ptr2 != nullptr);
 					assert(ptr3 != nullptr);
+					assert(mfunc != nullptr);
 					bool* are_equal = static_cast<bool*>(ptr3);
-					*are_equal = compare(*static_cast<storage*>(ptr1), *static_cast<storage*>(ptr2));
+					*are_equal = compare(*static_cast<storage*>(ptr1), static_cast<Obj*>(ptr2), mfunc);
 				}
 				return;
 				}
@@ -305,10 +350,6 @@ namespace my
 			static void move_storage(storage& from, storage& to) 
 			{
 				construct_storage(to, std::move(*(reinterpret_cast<Functor*>(&(from.internal_storage_functor)))));
-			}
-			static bool compare(storage& first, storage& second)
-			{
-				return &(first.internal_storage_functor) == &(second.internal_storage_functor);
 			}
 		public:
 			static void manager(storage_operation op, void* ptr1, void* ptr2, void* ptr3, MFunc mfunc)
@@ -344,11 +385,8 @@ namespace my
 				return;
 				case storage_operation::COMPARE:
 				{
-					assert(ptr1 != nullptr);
-					assert(ptr2 != nullptr);
-					assert(ptr3 != nullptr);
-					bool* are_equal = static_cast<bool*>(ptr3);
-					*are_equal = compare(*static_cast<storage*>(ptr1), *static_cast<storage*>(ptr2));
+					// unable to compare
+					assert(false);
 				}
 				return;
 				}
@@ -378,11 +416,7 @@ namespace my
 			{
 				to.external_storage_functor = from.external_storage_functor;
 				from.external_storage_functor = nullptr;
-			}
-			static bool compare(storage& first, storage& second)
-			{
-				return first.external_storage_functor == second.external_storage_functor;
-			}
+			}	
 		public:
 			static void manager(storage_operation op, void* ptr1, void* ptr2, void* ptr3, MFunc mfunc)
 			{
@@ -417,11 +451,8 @@ namespace my
 				return;
 				case storage_operation::COMPARE:
 				{
-					assert(ptr1 != nullptr);
-					assert(ptr2 != nullptr);
-					assert(ptr3 != nullptr);
-					bool* are_equal = static_cast<bool*>(ptr3);
-					*are_equal = compare(*static_cast<storage*>(ptr1), *static_cast<storage*>(ptr2));
+					// unable to compare
+					assert(false);
 				}
 				return;
 				}
@@ -471,7 +502,13 @@ namespace my
 		storage storage_{ nullptr };
 		storage_manager_ptr current_manager_{ &strategy_empty::manager };
 		invoker_ptr current_invoker_{ &invoker_empty::invoke };
+		std::size_t id_{ 0 };
+
+		static std::size_t currentId_;
 	};
+
+	template<class... Args>
+	std::size_t slot<Args...>::currentId_ = 0;
 }
 
 #endif // !SLOT_HPP

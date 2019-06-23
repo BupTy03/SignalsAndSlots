@@ -42,8 +42,7 @@ int main(int argc, char* argv[])
 	});
 	sl3(3, 4);
 
-	Functor func;
-	my::slot<int, int> sl4(func);
+	my::slot<int, int> sl4(Functor{});
 	sl4(2, 2);
 
 	auto cp_sl = sl;
