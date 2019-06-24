@@ -9,17 +9,15 @@
 #include <algorithm>
 #include <vector>
 #include <mutex>
-#include <shared_mutex>
-#include <memory>
 
 namespace my
 {
-	namespace internal_ns
+	/*namespace internal_ns
 	{
 		template<class It, class T>
 		inline bool contains(It first, It last, const T& val)
 		{
-			return last != std::find(first, last, val);
+			return std::find(first, last, val) != last;
 		}
 
 		template<class Container, class T>
@@ -27,26 +25,16 @@ namespace my
 		{
 			return contains(std::begin(cont), std::end(cont), val);
 		}
-
-		/*template<class It, class Predicate>
-		inline bool contains(It first, It last, Predicate pred)
-		{
-			return last != std::find(first, last, pred);
-		}
-
-		template<class Container, class Predicate>
-		inline bool contains(const Container& cont, Predicate pred)
-		{
-			return contains(std::begin(cont), std::end(cont), pred);
-		}*/
-	}
+	}*/
 
 	template<class... Args>
 	struct signal
 	{
-		void operator()(Args&&... args)
+		friend class connection;
+
+		void operator()(Args... args)
 		{
-			std::shared_lock<std::shared_mutex> lock_(mx_);
+			std::lock_guard<std::mutex> lock_(mtx_);
 			for (std::size_t i = 0; i < slots_.size(); ++i) {
 				slots_[i](std::forward<Args>(args)...);
 			}
@@ -54,117 +42,95 @@ namespace my
 
 		connection connect(void(*func)(Args...))
 		{
-			slot<Args...> sl(func);
-			return connect(sl);
+			std::lock_guard<std::mutex> lock_(mtx_);
+			auto it = std::find_if(std::cbegin(slots_), std::cend(slots_), 
+				[func](const auto& sl) { return sl.compare(func); });
+
+			if (std::cend(slots_) == it) {
+				slot<Args...> sl(func);
+				connection result(*this, sl);
+				slots_.insert(std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl), std::move(sl));
+				return result;
+			}
+			else {
+				return connection(*this, *it);
+			}
 		}
 		template<class Obj>
 		connection connect(Obj* obj, void (Obj::* func)(Args...))
 		{
-			slot<Args...> sl(obj, func);
-			return connect(sl);
+			std::lock_guard<std::mutex> lock_(mtx_);
+			auto it = std::find_if(std::cbegin(slots_), std::cend(slots_),
+				[obj, func](const auto& sl) { return sl.compare(obj, func); });
+
+			if (std::cend(slots_) == it) {
+				slot<Args...> sl(obj, func);
+				connection result(*this, sl);
+				slots_.insert(std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl), std::move(sl));
+				return result;
+			}
+			else {
+				return connection(*this, *it);
+			}
 		}
 		connection connect(const slot<Args...>& sl)
 		{
-			std::unique_lock<std::shared_mutex> lock_(mx_);
+			std::lock_guard<std::mutex> lock_(mtx_);
 			connection result(*this, sl);
-			/*if (internal_ns::contains(slots_, sl)) {
-				return result;
-			}*/
-			if (std::cend(slots_) != std::find(std::cbegin(slots_), std::cend(slots_), sl)) {
+			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl);
+			if (*it == sl) {
 				return result;
 			}
-			slots_.push_back(sl);
+			slots_.insert(it, sl);
 			return result;
 		}
 		connection connect(slot<Args...>&& sl)
 		{
-			std::unique_lock<std::shared_mutex> lock_(mx_);
+			std::lock_guard<std::mutex> lock_(mtx_);
 			connection result(*this, sl);
-			/*if (internal_ns::contains(slots_, sl)) {
-				return result;
-			}*/
-			if (std::cend(slots_) != std::find(std::cbegin(slots_), std::cend(slots_), sl)) {
+			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl);
+			if (*it == sl) {
 				return result;
 			}
-			slots_.push_back(std::move(sl));
+			slots_.insert(it, std::move(sl));
 			return result;
 		}
 
 		void disconnect(std::size_t slot_id)
 		{
-			std::shared_lock<std::shared_mutex> lock_(mx_);
-			auto it = std::find_if(std::cbegin(slots_), std::cend(slots_), SlotIdPredicate(slot_id));
-			/*if (std::cend(slots_) == it) {
-				return;
-			}*/
-			slots_.erase(it);
+			std::lock_guard<std::mutex> lock_(mtx_);
+			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), slot_id,
+				[](const auto& sl, std::size_t id) { return sl.get_id() < id; });
+
+			if (std::cend(slots_) != it && it->get_id() == slot_id) {
+				slots_.erase(it);
+			}
 		}
 		void disconnect(void(*func)(Args...))
 		{
-			std::shared_lock<std::shared_mutex> lock_(mx_);
-			auto it = std::find_if(std::cbegin(slots_), std::cend(slots_), SlotFunctionPredicate{ func });
-			/*if (std::cend(slots_) == it) {
-				return;
-			}*/
-			slots_.erase(it);
+			std::lock_guard<std::mutex> lock_(mtx_);
+			slots_.erase(std::find_if(std::cbegin(slots_), std::cend(slots_),
+				[func](const auto& sl) { return sl.compare(func); }));
 		}
 		template<class T>
 		void disconnect(T* obj, void (T::*func)(Args...))
 		{
-			std::shared_lock<std::shared_mutex> lock_(mx_);
-			auto it = std::find_if(std::cbegin(slots_), std::cend(slots_), SlotMemberFunctionPredicate{ obj, func });
-			/*if (internal_ns::contains(slots_, SlotMemberFunctionComparator{ obj, func })) {
-				return;
-			}*/
-			slots_.erase(it);
+			std::lock_guard<std::mutex> lock_(mtx_);
+			slots_.erase(std::find_if(std::cbegin(slots_), std::cend(slots_),
+				[obj, func](const auto& sl) { return sl.compare(obj, func); }));
 		}
 		void disconnect(const slot<Args...>& sl)
 		{
-			std::shared_lock<std::shared_mutex> lock_(mx_);
-			auto it = std::find(std::cbegin(slots_), std::cend(slots_), sl);
-			/*if (internal_ns::contains(slots_, sl)) {
-				return;
-			}*/
-			slots_.erase(it);
+			std::lock_guard<std::mutex> lock_(mtx_);
+			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl);
+			if (it != std::cend(slots_) && *it == sl) {
+				slots_.erase(it);
+			}
 		}
 
 	private:
-		struct SlotFunctionPredicate
-		{
-			SlotFunctionPredicate(void(*func)(Args...))
-				: func_{ func } {}
-
-			bool operator()(const slot<Args...>& sl) const { return sl.compare(func_); }
-		private:
-			void(*func_)(Args...) { nullptr };
-		};
-
-		struct SlotMemberFunctionPredicate
-		{
-			template<class T>
-			SlotMemberFunctionPredicate(T* obj, void (T::*func)(Args...))
-				: owner_{ static_cast<Obj*>(obj) }, mfunc_{ reinterpret_cast<MFunc>(func) } {}
-
-			bool operator()(const slot<Args...>& sl) const { return sl.compare(owner_, mfunc_); }
-		private:
-			struct Obj {};
-			typedef void (Obj::*MFunc)(Args...);
-			Obj* owner_{ nullptr };
-			MFunc mfunc_{ nullptr };
-		};
-
-		struct SlotIdPredicate
-		{
-			SlotIdPredicate(std::size_t id) : id_{ id } {}
-
-			bool operator()(const slot<Args...>& sl) const { return sl.get_id() == id_; }
-		private:
-			std::size_t id_{ 0 };
-		};
-
-	private:
 		std::vector<slot<Args...>> slots_;
-		std::shared_mutex mx_;
+		std::mutex mtx_;
 	};
 
 }

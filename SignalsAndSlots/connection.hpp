@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <utility>
+#include <algorithm>
 
 namespace my
 {
@@ -18,18 +19,17 @@ namespace my
 		friend class signal;
 
 		template<class... Args>
-		connection(signal<Args...>& si, const slot<Args...>& sl)
+		connection(signal<Args...>& si, const slot<Args...>& sl) noexcept
 			: pSignal_{ &si }
 			, slotId_{ sl.get_id() }
-			, current_disconnecter_{ &signal_slot_disconnecter<Args...>::diconnecter }
+			, disconnect_manager_{ &signal_slot_disconnecter<Args...>::manager }
 		{}
 
 	public:
 		connection(const connection& other) noexcept
 			: pSignal_{ other.pSignal_ }
 			, slotId_{ other.slotId_ }
-			, current_disconnecter_{ other.current_disconnecter_ }
-			, disconnected_{ other.disconnected_ }
+			, disconnect_manager_{ other.disconnect_manager_ }
 		{}
 		connection& operator=(const connection& other) noexcept
 		{
@@ -39,8 +39,7 @@ namespace my
 
 			pSignal_ = other.pSignal_;
 			slotId_ = other.slotId_;
-			current_disconnecter_ = other.current_disconnecter_;
-			disconnected_ = other.disconnected_;
+			disconnect_manager_ = other.disconnect_manager_;
 			return *this;
 		}
 
@@ -56,29 +55,53 @@ namespace my
 
 		void disconnect()
 		{
-			if (disconnected_) {
-				return;
-			}
-			current_disconnecter_(pSignal_, slotId_);
-			disconnected_ = true;
+			disconnect_manager_(operation::DISCONNECT, pSignal_, slotId_, nullptr);
 		}
 
-		void swap(connection& other)
+		void swap(connection& other) noexcept
 		{
 			std::swap(pSignal_, other.pSignal_);
 			std::swap(slotId_, other.slotId_);
-			std::swap(current_disconnecter_, other.current_disconnecter_);
-			std::swap(disconnected_, other.disconnected_);
+			std::swap(disconnect_manager_, other.disconnect_manager_);
 		}
 
-		bool is_connected() { return !disconnected_; }
+		bool is_connected() const noexcept 
+		{ 
+			bool flag{ false };
+			disconnect_manager_(operation::IS_DISCONNECTED, pSignal_, slotId_, &flag);
+			return flag;
+		}
+
+		enum class operation
+		{
+			IS_DISCONNECTED,
+			DISCONNECT
+		};
 
 		template<class... Args>
 		struct signal_slot_disconnecter
 		{
-			static void diconnecter(void* signal_ptr, std::size_t slot_id)
+			static void manager(operation op, void* signal_ptr, std::size_t slot_id, bool* flag)
 			{
-				static_cast<signal<Args...>*>(signal_ptr)->disconnect(slot_id);
+				assert(signal_ptr != nullptr);
+				auto pSig = static_cast<signal<Args...>*>(signal_ptr);
+				switch (op)
+				{
+				case operation::IS_DISCONNECTED:
+				{
+					assert(flag != nullptr);
+					auto it = std::lower_bound(std::cbegin(pSig->slots_), std::cend(pSig->slots_), slot_id,
+						[](const auto& sl, std::size_t id) { return sl.get_id() < id; });
+
+					*flag = ((it == std::cend(pSig->slots_)) || (it->get_id() != slot_id));
+				}
+				break;
+				case operation::DISCONNECT:
+				{
+					pSig->disconnect(slot_id);
+				}
+				break;
+				}
 			}
 		};
 
@@ -86,8 +109,7 @@ namespace my
 		void* pSignal_{ nullptr };
 		std::size_t slotId_{ 0 };
 
-		void(*current_disconnecter_)(void*, std::size_t) { nullptr };
-		bool disconnected_{ false };
+		void(*disconnect_manager_)(operation op, void* signal_ptr, std::size_t slot_id, bool* flag) { nullptr };
 	};
 
 }

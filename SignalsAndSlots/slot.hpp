@@ -19,13 +19,12 @@ namespace my
 		FUNCTOR
 	};
 
+	// TODO: make safe disconnection of the slot from all signals when it is destroyed
 	template<class... Args>
 	struct slot
 	{
-		explicit slot()
-			: id_{ currentId_++ }
-		{}
-		explicit slot(void(*func)(Args...))
+		explicit slot() noexcept : id_{ currentId_++ } {}
+		explicit slot(void(*func)(Args...)) noexcept
 			: current_manager_{ &strategy_function::manager }
 			, current_invoker_{ &invoker_function::invoke }
 			, id_{ ++currentId_ }
@@ -106,16 +105,7 @@ namespace my
 			return *this;
 		}
 
-		/*inline bool operator == (const slot& other) const noexcept 
-		{ 
-			bool are_equal = false;
-			current_manager_(storage_operation::COMPARE, const_cast<storage*>(&storage_), 
-				const_cast<storage*>(&(other.storage_)), &are_equal, nullptr);
-			return are_equal;
-		}
-		inline bool operator != (const slot& other) const noexcept { return !(*this == other); }*/
-
-		void operator () (Args... args) { current_invoker_(storage_, args...); }
+		void operator () (Args... args) { current_invoker_(storage_, std::forward<Args>(args)...); }
 
 		std::size_t get_id() const noexcept { return id_; }
 		slot_type type() const noexcept
@@ -164,7 +154,7 @@ namespace my
 			}
 
 			bool are_equal = false;
-			current_manager_(storage_operation::COMPARE, const_cast<storage*>(&storage_), owner, &are_equal, mfunc);
+			current_manager_(storage_operation::COMPARE, const_cast<storage*>(&storage_), owner, &are_equal, reinterpret_cast<MFunc>(mfunc));
 			return are_equal;
 		}
 
