@@ -12,21 +12,6 @@
 
 namespace my
 {
-	/*namespace internal_ns
-	{
-		template<class It, class T>
-		inline bool contains(It first, It last, const T& val)
-		{
-			return std::find(first, last, val) != last;
-		}
-
-		template<class Container, class T>
-		inline bool contains(const Container& cont, const T& val)
-		{
-			return contains(std::begin(cont), std::end(cont), val);
-		}
-	}*/
-
 	template<class... Args>
 	struct signal
 	{
