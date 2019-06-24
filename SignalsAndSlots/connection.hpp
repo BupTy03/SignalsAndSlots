@@ -22,14 +22,14 @@ namespace my
 		connection(signal<Args...>& si, const slot<Args...>& sl) noexcept
 			: pSignal_{ &si }
 			, slotId_{ sl.get_id() }
-			, disconnect_manager_{ &signal_slot_disconnecter<Args...>::manager }
+			, manager_{ &connection_manager<Args...>::manager }
 		{}
 
 	public:
 		connection(const connection& other) noexcept
 			: pSignal_{ other.pSignal_ }
 			, slotId_{ other.slotId_ }
-			, disconnect_manager_{ other.disconnect_manager_ }
+			, manager_{ other.manager_ }
 		{}
 		connection& operator=(const connection& other) noexcept
 		{
@@ -39,7 +39,7 @@ namespace my
 
 			pSignal_ = other.pSignal_;
 			slotId_ = other.slotId_;
-			disconnect_manager_ = other.disconnect_manager_;
+			manager_ = other.manager_;
 			return *this;
 		}
 
@@ -55,20 +55,27 @@ namespace my
 
 		void disconnect()
 		{
-			disconnect_manager_(operation::DISCONNECT, pSignal_, slotId_, nullptr);
+			manager_(operation::DISCONNECT, pSignal_, slotId_, nullptr);
 		}
 
 		void swap(connection& other) noexcept
 		{
 			std::swap(pSignal_, other.pSignal_);
 			std::swap(slotId_, other.slotId_);
-			std::swap(disconnect_manager_, other.disconnect_manager_);
+			std::swap(manager_, other.manager_);
 		}
 
 		bool is_connected() const noexcept 
 		{ 
-			bool flag{ false };
-			disconnect_manager_(operation::IS_DISCONNECTED, pSignal_, slotId_, &flag);
+			if (!connected_) {
+				return false;
+			}
+
+			bool flag{ true };
+			manager_(operation::IS_DISCONNECTED, pSignal_, slotId_, &flag);
+			if (flag) {
+				connected_ = false;
+			}
 			return flag;
 		}
 
@@ -79,7 +86,7 @@ namespace my
 		};
 
 		template<class... Args>
-		struct signal_slot_disconnecter
+		struct connection_manager
 		{
 			static void manager(operation op, void* signal_ptr, std::size_t slot_id, bool* flag)
 			{
@@ -90,10 +97,7 @@ namespace my
 				case operation::IS_DISCONNECTED:
 				{
 					assert(flag != nullptr);
-					auto it = std::lower_bound(std::cbegin(pSig->slots_), std::cend(pSig->slots_), slot_id,
-						[](const auto& sl, std::size_t id) { return sl.get_id() < id; });
-
-					*flag = ((it == std::cend(pSig->slots_)) || (it->get_id() != slot_id));
+					*flag = pSig->contains(slot_id);
 				}
 				break;
 				case operation::DISCONNECT:
@@ -109,7 +113,8 @@ namespace my
 		void* pSignal_{ nullptr };
 		std::size_t slotId_{ 0 };
 
-		void(*disconnect_manager_)(operation op, void* signal_ptr, std::size_t slot_id, bool* flag) { nullptr };
+		void(*manager_)(operation op, void* signal_ptr, std::size_t slot_id, bool* flag) { nullptr };
+		mutable bool connected_{ true };
 	};
 
 }

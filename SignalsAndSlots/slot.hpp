@@ -105,7 +105,7 @@ namespace my
 			return *this;
 		}
 
-		void operator () (Args... args) { current_invoker_(storage_, std::forward<Args>(args)...); }
+		void operator () (Args... args) const { current_invoker_(storage_, std::forward<Args>(args)...); }
 
 		std::size_t get_id() const noexcept { return id_; }
 		slot_type type() const noexcept
@@ -452,7 +452,7 @@ namespace my
 
 		struct invoker_empty
 		{
-			static void invoke(storage& stor, Args... args) 
+			static void invoke(storage& stor, Args... args)
 			{
 				throw std::bad_function_call{};
 			}
@@ -489,7 +489,7 @@ namespace my
 		};
 
 		// members
-		storage storage_{ nullptr };
+		mutable storage storage_{ nullptr };
 		storage_manager_ptr current_manager_{ &strategy_empty::manager };
 		invoker_ptr current_invoker_{ &invoker_empty::invoke };
 		std::size_t id_{ 0 };

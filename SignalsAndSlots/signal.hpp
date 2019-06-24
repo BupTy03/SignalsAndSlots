@@ -17,7 +17,7 @@ namespace my
 	{
 		friend class connection;
 
-		void operator()(Args... args)
+		void operator()(Args... args) const
 		{
 			std::lock_guard<std::mutex> lock_(mtx_);
 			for (std::size_t i = 0; i < slots_.size(); ++i) {
@@ -114,8 +114,18 @@ namespace my
 		}
 
 	private:
+		bool contains(std::size_t slot_id) const
+		{
+			std::lock_guard<std::mutex> lock_(mtx_);
+			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), slot_id,
+				[](const auto& sl, std::size_t id) { return sl.get_id() < id; });
+
+			return ((it == std::cend(slots_)) || (it->get_id() != slot_id));
+		}
+
+	private:
 		std::vector<slot<Args...>> slots_;
-		std::mutex mtx_;
+		mutable std::mutex mtx_;
 	};
 
 }
