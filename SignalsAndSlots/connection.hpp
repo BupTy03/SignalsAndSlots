@@ -19,18 +19,26 @@ namespace my
 		friend class signal;
 
 		template<class... Args>
-		connection(signal<Args...>& si, const slot<Args...>& sl) noexcept
+		connection(signal<Args...>& si, const slot<Args...>& sl)
 			: pSignal_{ &si }
 			, slotId_{ sl.get_id() }
 			, manager_{ &connection_manager<Args...>::manager }
-		{}
+		{
+			manager_(operation::ADD_CONNECTION, this, pSignal_, slotId_);
+		}
 
 	public:
+		~connection() { deleteConnection(); }
+
 		connection(const connection& other) noexcept
 			: pSignal_{ other.pSignal_ }
 			, slotId_{ other.slotId_ }
 			, manager_{ other.manager_ }
-		{}
+		{
+			if (pSignal_ != nullptr) {
+				manager_(operation::ADD_CONNECTION, this, pSignal_, slotId_);
+			}
+		}
 		connection& operator=(const connection& other) noexcept
 		{
 			if (this == &other) {
@@ -43,19 +51,30 @@ namespace my
 			return *this;
 		}
 
-		connection(connection&& other) noexcept { this->swap(other); }
+		connection(connection&& other) noexcept 
+		{ 
+			this->swap(other);
+			if (pSignal_ != nullptr) {
+				manager_(operation::ADD_CONNECTION, this, pSignal_, slotId_);
+			}
+			other.deleteConnection();
+		}
 		connection& operator=(connection&& other) noexcept
 		{
 			if (this == &other) {
 				return *this;
 			}
 			this->swap(other);
+			other.deleteConnection();
 			return *this;
 		}
 
 		void disconnect()
 		{
-			manager_(operation::DISCONNECT, pSignal_, slotId_, nullptr);
+			if (is_connected()) {
+				manager_(operation::DISCONNECT, this, pSignal_, slotId_);
+				pSignal_ = nullptr;
+			}
 		}
 
 		void swap(connection& other) noexcept
@@ -65,56 +84,59 @@ namespace my
 			std::swap(manager_, other.manager_);
 		}
 
-		bool is_connected() const noexcept 
-		{ 
-			if (!connected_) {
-				return false;
-			}
+		inline bool is_connected() const noexcept { return pSignal_ != nullptr; }
 
-			bool flag{ true };
-			manager_(operation::IS_DISCONNECTED, pSignal_, slotId_, &flag);
-			if (flag) {
-				connected_ = false;
-			}
-			return flag;
-		}
+	private:
 
-		enum class operation
-		{
-			IS_DISCONNECTED,
-			DISCONNECT
+		enum class operation {
+			ADD_CONNECTION, DELETE_CONNECTION, DISCONNECT
 		};
 
 		template<class... Args>
 		struct connection_manager
 		{
-			static void manager(operation op, void* signal_ptr, std::size_t slot_id, bool* flag)
+			static void manager(operation op, connection* conn, void* signal_ptr, std::size_t slot_id)
 			{
-				assert(signal_ptr != nullptr);
-				auto pSig = static_cast<signal<Args...>*>(signal_ptr);
+				assert(conn != nullptr);
+
+				auto p_sig = static_cast<signal<Args...>*>(signal_ptr);
+				assert(p_sig != nullptr);
+
 				switch (op)
 				{
-				case operation::IS_DISCONNECTED:
+				case operation::ADD_CONNECTION:
 				{
-					assert(flag != nullptr);
-					*flag = pSig->contains(slot_id);
+					p_sig->addConnection(conn);
+				}
+				break;
+				case operation::DELETE_CONNECTION:
+				{
+					p_sig->deleteConnection(conn);
 				}
 				break;
 				case operation::DISCONNECT:
 				{
-					pSig->disconnect(slot_id);
+					p_sig->disconnect(slot_id);
+					p_sig->deleteConnection(conn);
 				}
 				break;
 				}
 			}
 		};
 
+		void deleteConnection()
+		{
+			if (is_connected()) {
+				manager_(operation::DELETE_CONNECTION, this, pSignal_, slotId_);
+				pSignal_ = nullptr;
+			}
+		}
+
 	private:
 		void* pSignal_{ nullptr };
 		std::size_t slotId_{ 0 };
 
-		void(*manager_)(operation op, void* signal_ptr, std::size_t slot_id, bool* flag) { nullptr };
-		mutable bool connected_{ true };
+		void(*manager_)(operation op, connection* conn, void* signal_ptr, std::size_t slot_id) { nullptr };
 	};
 
 }

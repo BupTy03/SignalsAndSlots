@@ -57,9 +57,9 @@ int main(int argc, char* argv[])
 		std::cout << "(Lambda) Sum: " << a + b << std::endl;
 	});
 
-	conn.disconnect();
-	conn2.disconnect();
-	//conn3.disconnect();
+	//conn.disconnect();
+	//conn2.disconnect();
+	conn3.disconnect();
 
 	sign(2, 3);
 

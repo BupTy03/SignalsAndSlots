@@ -17,9 +17,18 @@ namespace my
 	{
 		friend class connection;
 
+		explicit signal() = default;
+		~signal()
+		{
+			for (auto conn : connections_) {
+				assert(conn != nullptr);
+				conn->pSignal_ = nullptr;
+			}
+		}
+
 		void operator()(Args... args) const
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			for (std::size_t i = 0; i < slots_.size(); ++i) {
 				slots_[i](std::forward<Args>(args)...);
 			}
@@ -27,7 +36,7 @@ namespace my
 
 		connection connect(void(*func)(Args...))
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			auto it = std::find_if(std::cbegin(slots_), std::cend(slots_), 
 				[func](const auto& sl) { return sl.compare(func); });
 
@@ -44,7 +53,7 @@ namespace my
 		template<class Obj>
 		connection connect(Obj* obj, void (Obj::* func)(Args...))
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			auto it = std::find_if(std::cbegin(slots_), std::cend(slots_),
 				[obj, func](const auto& sl) { return sl.compare(obj, func); });
 
@@ -60,7 +69,7 @@ namespace my
 		}
 		connection connect(const slot<Args...>& sl)
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			connection result(*this, sl);
 			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl);
 			if (*it == sl) {
@@ -71,7 +80,7 @@ namespace my
 		}
 		connection connect(slot<Args...>&& sl)
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			connection result(*this, sl);
 			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl);
 			if (*it == sl) {
@@ -83,7 +92,7 @@ namespace my
 
 		void disconnect(std::size_t slot_id)
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), slot_id,
 				[](const auto& sl, std::size_t id) { return sl.get_id() < id; });
 
@@ -93,20 +102,20 @@ namespace my
 		}
 		void disconnect(void(*func)(Args...))
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			slots_.erase(std::find_if(std::cbegin(slots_), std::cend(slots_),
 				[func](const auto& sl) { return sl.compare(func); }));
 		}
 		template<class T>
 		void disconnect(T* obj, void (T::*func)(Args...))
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			slots_.erase(std::find_if(std::cbegin(slots_), std::cend(slots_),
 				[obj, func](const auto& sl) { return sl.compare(obj, func); }));
 		}
 		void disconnect(const slot<Args...>& sl)
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
 			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), sl);
 			if (it != std::cend(slots_) && *it == sl) {
 				slots_.erase(it);
@@ -114,18 +123,31 @@ namespace my
 		}
 
 	private:
-		bool contains(std::size_t slot_id) const
+		void addConnection(connection* pConnection)
 		{
-			std::lock_guard<std::mutex> lock_(mtx_);
-			auto it = std::lower_bound(std::cbegin(slots_), std::cend(slots_), slot_id,
-				[](const auto& sl, std::size_t id) { return sl.get_id() < id; });
+			assert(pConnection != nullptr);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
+			auto it = std::lower_bound(std::cbegin(connections_), std::cend(connections_), pConnection);
 
-			return ((it == std::cend(slots_)) || (it->get_id() != slot_id));
+			if ((it == std::cend(connections_)) || (*it != pConnection)) {
+				connections_.insert(it, pConnection);
+			}
+		}
+		void deleteConnection(connection* pConnection)
+		{
+			assert(pConnection != nullptr);
+			std::lock_guard<std::recursive_mutex> lock_(mtx_);
+			auto it = std::lower_bound(std::cbegin(connections_), std::cend(connections_), pConnection);
+
+			if ((it != std::cend(connections_)) && (*it == pConnection)) {
+				connections_.erase(it);
+			}
 		}
 
 	private:
 		std::vector<slot<Args...>> slots_;
-		mutable std::mutex mtx_;
+		std::vector<connection*> connections_;
+		mutable std::recursive_mutex mtx_;
 	};
 
 }
